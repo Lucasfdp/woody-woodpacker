@@ -13,3 +13,7 @@ sample_*
 # editor
 .vscode/
 *.swp
+
+# 42 subject (don't publish)
+woody-woodpacker.pdf
+*.pdf

@@ -1,0 +1,13 @@
+# Suppressions for woody-woodpacker work.
+# Keep this file EMPTY of real suppressions unless you have a proven reason —
+# a leak or an invalid-access you suppressed is one you still have at
+# defense, and "must never crash" is a hard subject requirement here.
+#
+# Template, in case you ever need one:
+#
+# {
+#    name_of_suppression
+#    Memcheck:Leak
+#    fun:malloc
+#    fun:some_library_function
+# }
