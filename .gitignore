@@ -1,0 +1,15 @@
+# build output
+*.o
+*.out
+woody_woodpacker
+woody
+woody_*
+sample
+sample_*
+
+# macOS
+.DS_Store
+
+# editor
+.vscode/
+*.swp
