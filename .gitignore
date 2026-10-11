@@ -1,0 +1,23 @@
+.gitignore
+# build output
+*.o
+*.out
+woody_woodpacker
+woody
+woody_*
+sample
+sample_*
+
+DECISIONS.md
+CLAUDE.md
+
+# macOS
+.DS_Store
+
+# editor
+.vscode/
+*.swp
+
+# 42 subject (don't publish)
+woody-woodpacker.pdf
+*.pdf
