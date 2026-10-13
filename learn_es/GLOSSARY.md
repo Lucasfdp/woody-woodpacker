@@ -139,3 +139,182 @@ texto delante.
 **Llano:** la señal de que ya no hay más datos que leer de un archivo.
 **Introducido en:** § 2
 **Lo verás en:** `read()` devolviendo 0
+
+### interfaz
+**Llano:** un conjunto acordado de operaciones con nombre que más de una
+implementación concreta puede proporcionar — quien llama solo necesita
+conocer los nombres y su significado, no qué implementación hay detrás.
+**Introducido en:** § 3
+**Lo verás en:** `open`/`read`/`write`/`close` (una interfaz que ya usas);
+el diseño de backend de formato para ELF64/ELF32/Mach-O
+
+### puntero a función
+**Llano:** una variable que guarda la dirección de una función en vez de
+un dato, de modo que qué función se ejecuta realmente puede cambiar en
+tiempo de ejecución.
+**Introducido en:** § 3
+**Lo verás en:** cada campo de `format_backend_t`
+
+### tabla de despacho
+**Llano:** un struct cuyos campos son todos punteros a función, un valor
+de struct por formato, usado para elegir qué implementación se ejecuta sin
+una cadena de `if`. A veces llamada **vtable** (**v**irtual **table**,
+tabla virtual) en contextos de C++.
+**Introducido en:** § 3
+**Lo verás en:** `elf64_backend` / `elf32_backend` / `macho_backend`
+
+### backend de formato
+**Llano:** una implementación completa de la interfaz de formato — las
+cuatro funciones que manejan todo lo que el resto del programa necesita,
+para exactamente un formato binario.
+**Introducido en:** § 3
+**Lo verás en:** las implementaciones de ELF64, ELF32 y Mach-O
+
+### O_CREAT / O_TRUNC / O_WRONLY
+**Significa:** Open flags — CREATe / TRUNCate / WRite ONLY
+**Llano:** flags de `open()`: crea el archivo si no existe, lo trunca a
+longitud cero si ya existe, y lo abre solo para escritura.
+**Introducido en:** § 4
+**Lo verás en:** abrir `woody` para escritura
+
+### bits de modo de archivo
+**Llano:** los bits de permiso (p. ej. `0755`) que se dan al tercer
+argumento de `open()` cuando se usa `O_CREAT` — quién puede leer, escribir
+y ejecutar el archivo nuevo.
+**Introducido en:** § 4
+**Lo verás en:** que `woody` necesite su bit de ejecución para poder
+correr
+
+### escritura corta
+**Llano:** `write()` devolviendo menos bytes de los pedidos, sin error —
+raro en un archivo local, pero hay que manejarlo con un bucle, nunca
+asumir que no pasa.
+**Introducido en:** § 4
+**Lo verás en:** el bucle de escritura que produce `woody`
+
+### patrón struct-de-punteros
+**Llano:** la misma idea que una tabla de despacho, nombrada por lo que es
+en C puro — un struct cuyos campos son punteros a funciones en vez de a
+datos.
+**Introducido en:** § 3
+**Lo verás en:** `format_backend_t`
+
+### mmap
+**Significa:** Memory MAP (mapear memoria)
+**Sencillo:** pide al kernel directamente un bloque de memoria (o una
+vista sobre un archivo) con un tamaño y permisos que tú eliges, en lugar
+de pasar por el heap de `malloc`.
+**Introducido en:** § 5
+**Lo verás en:** la demo de mmap/mprotect, el manejo que hace el propio
+loader de los segmentos `PT_LOAD` (§ 1)
+
+### MAP_PRIVATE / MAP_ANONYMOUS
+**Sencillo:** flags de `mmap`: `MAP_PRIVATE` mantiene las escrituras
+privadas a este proceso; `MAP_ANONYMOUS` significa que no hay ningún
+archivo detrás del mapeo, solo un bloque de memoria desnudo.
+**Introducido en:** § 5
+**Lo verás en:** la demo de mmap/mprotect
+
+### PROT_READ / PROT_WRITE / PROT_EXEC
+**Significa:** flags de PROTección — Read / Write / eXecute
+**Sencillo:** los permisos que `mmap` y `mprotect` establecen sobre una
+región de memoria, combinados con `|`.
+**Introducido en:** § 5
+**Lo verás en:** toda llamada a `mmap`/`mprotect`, `p_flags` (§ 1)
+
+### página
+**Sencillo:** el trozo de tamaño fijo (normalmente 4096 bytes en x86_64)
+en el que realmente opera la protección de memoria — los permisos se
+aplican a páginas completas, nunca a rangos de bytes arbitrarios.
+**Introducido en:** § 5
+**Lo verás en:** el redondeo de longitud de `mmap`, el requisito de
+alineación de dirección de `mprotect`
+
+### mprotect
+**Significa:** Memory PROTECT (proteger memoria)
+**Sencillo:** cambia los flags de permiso de una región ya mapeada, en el
+sitio, sin desmapearla.
+**Introducido en:** § 5
+**Lo verás en:** el stub de descifrado alternando un segmento entre
+escribible y ejecutable
+
+### munmap
+**Sencillo:** libera un mapeo de vuelta al kernel — el inverso de
+`mmap`, la misma disciplina que `free` o `close`.
+**Introducido en:** § 5
+**Lo verás en:** limpiar después de la demo de mmap/mprotect
+
+### W^X
+**Significa:** Write XOR eXecute (escritura XOR ejecución)
+**Sencillo:** una política de endurecimiento que se niega a permitir que
+un mapeo sea a la vez escribible y ejecutable.
+**Introducido en:** § 5
+**Lo verás en:** por qué el stub de descifrado no puede dejar la memoria
+en `RWX` permanentemente
+
+### cifrado simétrico
+**Sencillo:** un esquema donde la misma clave cifra y descifra, a
+diferencia de los esquemas de clave pública/privada (asimétricos).
+**Introducido en:** § 6
+**Lo verás en:** el par cifrado en tiempo de empaquetado / descifrado en
+el stub
+
+### cifrado XOR
+**Sencillo:** cifrado construido sobre XOR bit a bit — `(x ^ k) ^ k == x`
+para cualquier `x` y `k`, que es toda la razón por la que el cifrado de
+este proyecto es reversible.
+**Introducido en:** § 6
+**Lo verás en:** tanto el paso de cifrado como el de descifrado — la
+misma operación, ejecutada dos veces
+
+### cifrado de flujo
+**Sencillo:** un cifrado que cifra los datos un byte a la vez contra un
+flujo pseudoaleatorio producido continuamente, en lugar de bloques de
+tamaño fijo.
+**Introducido en:** § 6
+**Lo verás en:** el paso de XOR sobre el archivo completo de este
+proyecto
+
+### keystream
+**Sencillo:** el flujo de bytes pseudoaleatorios, tan largo como los
+datos que se cifran, que se aplica con XOR contra ellos.
+**Introducido en:** § 6
+**Lo verás en:** derivado de la clave, nunca almacenado directamente
+
+### PRNG
+**Significa:** Pseudo-Random Number Generator (generador de números
+pseudoaleatorios)
+**Sencillo:** un algoritmo que produce una secuencia que parece
+estadísticamente aleatoria pero está enteramente determinada por su
+semilla inicial — misma semilla, misma secuencia, siempre.
+**Introducido en:** § 6
+**Lo verás en:** derivar el keystream a partir de la clave
+
+### semilla
+**Sencillo:** el estado inicial que se da a un PRNG; determina toda su
+secuencia de salida.
+**Introducido en:** § 6
+**Lo verás en:** los bytes de la clave, usados para sembrar el PRNG del
+keystream
+
+### getrandom
+**Sencillo:** una syscall de Linux que llena un búfer con bytes
+genuinamente impredecibles del kernel, alcanzada aquí vía `syscall` ya
+que es lo que permite la lista de funciones permitidas del enunciado.
+**Introducido en:** § 6
+**Lo verás en:** generar la clave aleatoria cuando no se proporciona
+ninguna
+
+### roundtrip
+**Sencillo:** cifrar y luego descifrar inmediatamente, comprobando que el
+resultado coincide exactamente con el original — la prueba de corrección
+de cualquier transformación reversible.
+**Introducido en:** § 6
+**Lo verás en:** el checkpoint de § 6
+
+### clave parametrizada
+**Sencillo:** el requisito de bonus de que la clave se pueda dar por
+línea de comandos en lugar de generarse siempre aleatoriamente.
+**Introducido en:** § 6
+**Lo verás en:** el parseo de argumentos de línea de comandos,
+DECISIONS.md
