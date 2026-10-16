@@ -1,69 +1,84 @@
 #include "woody.h"
 
-int main(int ac, char *av[])
+static void	cleanup(t_woody *woody)
 {
+	if (woody->file_buf)
+		free(woody->file_buf);
+	if (woody->input_fd >= 0)
+		close(woody->input_fd);
+	if (woody->output_fd >= 0)
+		close(woody->output_fd);
+}
+
+int	main(int ac, char *av[])
+{
+	t_woody	woody;
+	ssize_t	bytes_read;
+	ssize_t	written;
+	ssize_t	n;
+
+	woody.ehdr = NULL;
+	woody.phdrs = NULL;
+	woody.file_buf = NULL;
+	woody.input_fd = -1;
+	woody.output_fd = -1;
 	if (ac != 2)
 	{
-		fputs("Usage ./woody <ex.o>\n", stderr);
+		fputs("Usage: ./woody <ex.o>\n", stderr);
 		return (1);
 	}
-	int fd = open(av[1], O_RDONLY);
-	if (fd == -1)
+	woody.input_fd = open(av[1], O_RDONLY);
+	if (woody.input_fd == -1)
+		return (perror("Bad fd"), 1);
+	if (fstat(woody.input_fd, &woody.input_stat) == -1)
+		return (perror("Bad fstat"), cleanup(&woody), 1);
+	if (woody.input_stat.st_size < (off_t)sizeof(Elf64_Ehdr))
 	{
-		perror("Bad fd");
-		return (1);
+		fputs("File too small to be ELF\n", stderr);
+		return (cleanup(&woody), 1);
 	}
-	struct stat st;
-	if (fstat(fd, &st) == -1)
-	{
-		perror("Bad fstat");
-		return (1);
-	}
-	char *buf = malloc(sizeof(char) * st.st_size);
-	if (!buf)
-	{
-		perror("Failed malloc");
-		return (1);
-	}
-	int bytes_read = read(fd, buf, st.st_size);
+	woody.file_buf = malloc(woody.input_stat.st_size);
+	if (!woody.file_buf)
+		return (perror("Failed malloc"), cleanup(&woody), 1);
+	bytes_read = read(woody.input_fd, woody.file_buf,
+			woody.input_stat.st_size);
 	if (bytes_read < 0)
-	{
-		perror("Failed read");
-		return (1);
-	}
+		return (perror("Failed read"), cleanup(&woody), 1);
 	if ((size_t)bytes_read < sizeof(Elf64_Ehdr))
 	{
 		fputs("File too small to be ELF\n", stderr);
-		return (1);
+		return (cleanup(&woody), 1);
 	}
-	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)buf;
-	if (parse_elf_info(ehdr, buf, st))
+	woody.ehdr = (Elf64_Ehdr *)woody.file_buf;
+	if (parse_elf_info(&woody))
+		return (cleanup(&woody), 1);
+	woody.output_fd = open("woody", O_CREAT | O_TRUNC | O_WRONLY, 0755);
+	if (woody.output_fd == -1)
+		return (perror("Failed open"), cleanup(&woody), 1);
+	written = 0;
+	while (written < bytes_read)
 	{
-		free(buf);
-		close(fd);
-		exit(1);
-	}
-	int openfd = open("woody", O_CREAT | O_TRUNC | O_WRONLY, 0755);
-	if (openfd < 0)
-	{
-		perror("Failed open");
-		return (1);
-	}
-	ssize_t written = 0;
-	int total_size = st.st_size;
-	while (written < total_size)
-	{
-		ssize_t n = write(openfd, buf + written, total_size - written);
-		if (n < 0)
+		n = write(woody.output_fd, woody.file_buf + written,
+				bytes_read - written);
+		if (n <= 0)
 		{
-			perror("write");
-			free(buf);
-			close(fd);
-			exit(1);
+			if (n < 0)
+				perror("Failed write");
+			else
+				fputs("Write returned zero\n", stderr);
+			cleanup(&woody);
+			return (1);
 		}
 		written += n;
 	}
-	free(buf);
-	close(fd);
-	return 0;
+	t_cave cave = find_cave(&woody);
+	int check = check_cave(&woody, &cave);
+	if (check == 0)
+		printf("Good");
+	else if (check == 1)
+		printf("Bad");
+	else if (check == -1)
+		printf("Good");
+	cleanup(&woody);
+	return (0);
 }

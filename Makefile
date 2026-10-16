@@ -3,11 +3,17 @@
 #
 #  Source layout:
 #    srcs/           woody_woodpacker.c and friends — discovered, not listed
-#    stub.s           the asm decrypt stub, assembled separately (see `stub`)
+#                     (.c AND .s under srcs/ are both discovered and linked —
+#                      e.g. srcs/encrypt/*.s, the asm encrypt/decrypt/rc4
+#                      routines called from the C side)
+#    stub.s           the standalone decrypt stub, assembled separately (see
+#                      `stub`) — NOT linked here, it is injected as raw bytes
+#                      into the packed binary instead
 #    docker/          x86_64 container — see docker/README.md
 #
-#  Sources are DISCOVERED under srcs/: adding a .c anywhere under there picks
-#  it up with no edit here. Object files mirror the source tree under obj/.
+#  Sources are DISCOVERED under srcs/: adding a .c or .s anywhere under there
+#  picks it up with no edit here. Object files mirror the source tree under
+#  obj/.
 #
 #  The deliverable is a PROGRAM, unlike libasm's static library: `make` builds
 #  woody_woodpacker, and `make run` packs a target ELF with it.
@@ -62,6 +68,23 @@ SRCS		:=	$(shell find $(SRC_DIR) -name '*.c' 2>/dev/null | sort)
 OBJS		:=	$(SRCS:%.c=$(OBJ_DIR)/%.o)
 TOTAL		:=	$(words $(SRCS))
 
+# .s files under srcs/ (e.g. srcs/encrypt/*.s) are linked INTO woody_woodpacker
+# itself — unlike stub.s at the repo root, which stays separate (see the Asm
+# decrypt stub section below).
+ASM_SRCS	:=	$(shell find $(SRC_DIR) -name '*.s' 2>/dev/null | sort)
+ASM_OBJS	:=	$(ASM_SRCS:%.s=$(OBJ_DIR)/%.o)
+
+ifneq ($(ASM_SRCS),)
+ifeq ($(filter $(DIAG_GOALS),$(MAKECMDGOALS)),)
+ifeq ($(shell command -v $(AS) 2>/dev/null),)
+$(error No assembler found - looked for '$(AS)' on your PATH, needed because \
+$(words $(ASM_SRCS)) .s file(s) exist under $(SRC_DIR)/. Install it with \
+`sudo apt install nasm` (Debian/Ubuntu) or `brew install nasm` (macOS), or \
+run `make -C docker shell`.)
+endif
+endif
+endif
+
 COMPILED	:=	0
 MAKEFLAGS	+=	--no-print-directory
 
@@ -93,15 +116,15 @@ RESET		= \033[0m
 # ==========================
 all: $(NAME)
 
-$(NAME): $(OBJS)
+$(NAME): $(OBJS) $(ASM_OBJS)
 	@if [ -z "$(OBJS)" ]; then \
 		printf "$(YELLOW)$(BOLD)  no .c files under $(SRC_DIR)/ yet — nothing to link$(RESET)\n"; \
 		printf "$(YELLOW)  run 'make env' to see the layout this Makefile expects$(RESET)\n\n"; \
 		exit 0; \
 	fi
-	@$(CC) $(CFLAGS) $(OBJS) -o $(NAME)
+	@$(CC) $(CFLAGS) $(OBJS) $(ASM_OBJS) -o $(NAME)
 	@if [ -n "$(TOPLEVEL)" ]; then $(MAKE) banner; fi
-	@printf "$(GREEN)$(BOLD) [$(NAME) built — $(words $(OBJS)) object(s)]$(RESET)\n\n"
+	@printf "$(GREEN)$(BOLD) [$(NAME) built — $(words $(OBJS)) C + $(words $(ASM_OBJS)) asm object(s)]$(RESET)\n\n"
 	@$(MAKE) warn-host
 
 # Compile with progress bar. The mkdir handles the mirrored obj/ subtree, so
@@ -117,6 +140,14 @@ $(OBJ_DIR)/%.o: %.c
 	@i=0; while [ $$i -lt $(EMPTY) ]; do printf "░"; i=$$((i+1)); done
 	@printf "$(CYAN)] $(BOLD)%3d%%$(RESET)" $(PCT)
 	@$(CC) $(CFLAGS) -I$(INC_DIR) -MMD -MP -c $< -o $@
+
+# Assemble a .s file under srcs/ into its mirrored obj/ path. No progress bar
+# (nasm is fast and there are usually few of these) and no -MMD/-MP — nasm
+# doesn't generate Makefile dependency files the way $(CC) does.
+$(OBJ_DIR)/%.o: %.s
+	@mkdir -p $(dir $@)
+	@printf "$(MAGENTA)  Assembling $(BOLD)%-30s$(RESET)\n" "$(notdir $<)"
+	@$(AS) $(ASFLAGS) $< -o $@
 
 # ==========================
 # Run
@@ -217,6 +248,7 @@ env:
 	done
 	@printf "$(CYAN)$(BOLD)\n  Sources found$(RESET)\n\n"
 	@printf "    %-22s %s\n" ".c under $(SRC_DIR)/" "$(TOTAL)"
+	@printf "    %-22s %s\n" ".s under $(SRC_DIR)/ (linked)" "$(words $(ASM_OBJS))"
 	@if [ "$(TOTAL)" -eq 0 ]; then \
 		printf "\n    $(RED)no sources found$(RESET) — either you are not in the repo root,\n"; \
 		printf "    or you have not created the layout yet:\n\n"; \
@@ -231,7 +263,7 @@ cloc:
 	@printf "$(CYAN)$(BOLD)\n  Lines of C:$(RESET)\n\n"
 	@find $(SRC_DIR) -name "*.c" -o -name "*.h" 2>/dev/null | xargs wc -l 2>/dev/null | sort -rn | head -30
 	@printf "$(CYAN)$(BOLD)\n  Lines of asm:$(RESET)\n\n"
-	@find . -maxdepth 1 -name "*.s" 2>/dev/null | xargs wc -l 2>/dev/null | sort -rn
+	@{ find . -maxdepth 1 -name "*.s" 2>/dev/null; find $(SRC_DIR) -name "*.s" 2>/dev/null; } | xargs wc -l 2>/dev/null | sort -rn
 	@printf "\n"
 
 # ==========================
@@ -240,7 +272,9 @@ cloc:
 list:
 	@printf "$(CYAN)$(BOLD)\n  Sources ($(TOTAL) files):$(RESET)\n"
 	@for f in $(SRCS); do printf "    $(GREEN)→$(RESET) $$f\n"; done
-	@printf "$(CYAN)$(BOLD)\n  Asm stub:$(RESET)\n"
+	@printf "$(CYAN)$(BOLD)\n  Asm sources (linked, $(words $(ASM_SRCS)) files):$(RESET)\n"
+	@for f in $(ASM_SRCS); do printf "    $(MAGENTA)→$(RESET) $$f\n"; done; true
+	@printf "$(CYAN)$(BOLD)\n  Asm stub (standalone, not linked):$(RESET)\n"
 	@[ -e $(STUB) ] && printf "    $(MAGENTA)→$(RESET) $(STUB)\n" || printf "    $(YELLOW)(not written yet)$(RESET)\n"
 	@printf "$(CYAN)$(BOLD)\n  Headers:$(RESET)\n"
 	@for f in $(INC_DIR)/*.h; do [ -e "$$f" ] && printf "    $(BLUE)→$(RESET) $$f\n"; done; true
