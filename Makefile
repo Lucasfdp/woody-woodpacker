@@ -55,6 +55,7 @@ ASFLAGS		:=	-f elf64 -g -F dwarf
 SRC_DIR		:=	srcs
 OBJ_DIR		:=	obj
 INC_DIR		:=	includes
+TEST_DIR	:=	resources/test_binaries
 
 # ==========================
 # Source discovery
@@ -123,9 +124,9 @@ $(NAME): $(OBJS) $(ASM_OBJS)
 		exit 0; \
 	fi
 	@$(CC) $(CFLAGS) $(OBJS) $(ASM_OBJS) -o $(NAME)
-	@if [ -n "$(TOPLEVEL)" ]; then $(MAKE) banner; fi
-	@printf "$(GREEN)$(BOLD) [$(NAME) built — $(words $(OBJS)) C + $(words $(ASM_OBJS)) asm object(s)]$(RESET)\n\n"
-	@$(MAKE) warn-host
+# 	@if [ -n "$(TOPLEVEL)" ]; then $(MAKE) banner; fi
+# 	@printf "$(GREEN)$(BOLD) [$(NAME) built — $(words $(OBJS)) C + $(words $(ASM_OBJS)) asm object(s)]$(RESET)\n\n"
+# 	@$(MAKE) warn-host
 
 # Compile with progress bar. The mkdir handles the mirrored obj/ subtree, so
 # a new srcs/<module>/ directory needs no rule of its own.
@@ -202,6 +203,69 @@ gdb: $(NAME)
 check: fclean
 	@printf "$(MAGENTA)$(BOLD)\n  Strict rebuild (-Wall -Wextra -Werror)$(RESET)\n\n"
 	@$(MAKE) $(NAME)
+
+# ==========================
+# Test
+# ==========================
+# Pack every fixture under $(TEST_DIR)/, run the packed binary and check it
+# still behaves like the original: prints "..WOODY.." first, then identical
+# stdout and exit code. Non-ELF / truncated fixtures are expected to be
+# REJECTED by the packer (non-zero, clean exit). A crash — exit >= 128, i.e.
+# killed by a signal — in EITHER the packer or the packed binary is always a
+# failure: that is the regression guard for the "runs then segfaults" class.
+#
+# Nothing is hardcoded per file: the expected behaviour of each fixture is
+# derived by running the original, and whether a rejection is correct is
+# decided by whether the original was a runnable ELF in the first place.
+#
+# x86_64 only: the fixtures are x86_64 ELFs, so run this on an x86_64 Linux
+# host or inside the container (`make shell`, then `make test`). On any other
+# host it says so and no-ops rather than failing.
+test: SHELL := /bin/bash
+test: $(NAME)
+	@printf "$(MAGENTA)$(BOLD)\n  Testing against $(TEST_DIR)/$(RESET)\n\n"
+	@if [ "$$(uname -s)" != "Linux" ] || [ "$$(uname -m)" != "x86_64" ]; then \
+		printf "$(YELLOW)$(BOLD)  host is $$(uname -sm) — cannot run x86_64 packed ELFs here$(RESET)\n"; \
+		printf "$(YELLOW)  run the tests where they can execute:$(RESET)\n\n"; \
+		printf "    $(CYAN)make shell$(RESET)   then   $(CYAN)make test$(RESET)\n\n"; \
+		exit 0; \
+	fi; \
+	if [ ! -d $(TEST_DIR) ]; then \
+		printf "$(RED)$(BOLD)  no $(TEST_DIR)/ directory$(RESET)\n\n"; exit 1; \
+	fi; \
+	pass=0; fail=0; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	for f in $(TEST_DIR)/*; do \
+		case "$$f" in *.c|*.h|*.md|*.DS_Store) continue;; esac; \
+		[ -f "$$f" ] || continue; \
+		name=$$(basename "$$f"); \
+		cp "$$f" "$$tmp/orig"; chmod +x "$$tmp/orig" 2>/dev/null; \
+		( "$$tmp/orig" >"$$tmp/oout"; exit $$? ) 2>/dev/null; oexit=$$?; \
+		./$(NAME) "$$f" >/dev/null 2>&1; pexit=$$?; \
+		if [ $$pexit -ge 128 ]; then \
+			printf "  $(RED)✗ %-22s packer crashed (signal %d)$(RESET)\n" "$$name" $$((pexit - 128)); fail=$$((fail + 1)); continue; \
+		fi; \
+		if [ $$pexit -ne 0 ]; then \
+			if [ $$oexit -ge 126 ]; then \
+				printf "  $(GREEN)✓ %-22s$(RESET) rejected as expected (exit %d)\n" "$$name" $$pexit; pass=$$((pass + 1)); \
+			else \
+				printf "  $(RED)✗ %-22s packer rejected a runnable binary (exit %d)$(RESET)\n" "$$name" $$pexit; fail=$$((fail + 1)); \
+			fi; \
+			continue; \
+		fi; \
+		cp woody "$$tmp/woody"; chmod +x "$$tmp/woody"; \
+		( "$$tmp/woody" >"$$tmp/rout"; exit $$? ) 2>/dev/null; rexit=$$?; \
+		if [ $$rexit -ge 128 ]; then \
+			printf "  $(RED)✗ %-22s packed binary crashed (signal %d)$(RESET)\n" "$$name" $$((rexit - 128)); fail=$$((fail + 1)); continue; \
+		fi; \
+		{ printf '..WOODY..\n'; cat "$$tmp/oout"; } >"$$tmp/want"; \
+		if [ "$$rexit" = "$$oexit" ] && cmp -s "$$tmp/rout" "$$tmp/want"; then \
+			printf "  $(GREEN)✓ %-22s$(RESET) packs + runs, output and exit preserved\n" "$$name"; pass=$$((pass + 1)); \
+		else \
+			printf "  $(RED)✗ %-22s output/exit mismatch (orig exit %d, packed exit %d)$(RESET)\n" "$$name" $$oexit $$rexit; fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	printf "\n$(BOLD)  %d passed, %d failed$(RESET)\n\n" $$pass $$fail; \
+	[ $$fail -eq 0 ]
 
 # ==========================
 # Container
@@ -419,6 +483,7 @@ help:
 	@printf "  $(GREEN)make debug$(RESET)            — rebuild with AddressSanitizer\n"
 	@printf "  $(GREEN)make gdb$(RESET)              — open gdb on $(NAME) (pass TARGET=path)\n"
 	@printf "  $(GREEN)make check$(RESET)            — strict rebuild (-Wall -Wextra -Werror)\n"
+	@printf "  $(GREEN)make test$(RESET)             — pack every fixture in $(TEST_DIR)/ and verify it runs (x86_64/container)\n"
 	@printf "  $(GREEN)make env$(RESET)              — report the toolchain (run this if the build fails)\n"
 	@printf "  $(GREEN)make shell$(RESET)            — open a shell in the x86_64 container\n"
 	@printf "  $(GREEN)make check-env$(RESET)        — verify the container (docker/check-env.sh)\n"
@@ -428,5 +493,5 @@ help:
 	@printf "  $(GREEN)make help$(RESET)             — show this message\n"
 	@printf "\n"
 
-.PHONY: all run stub debug gdb check shell check-env env cloc list warn-host \
+.PHONY: all run stub test debug gdb check shell check-env env cloc list warn-host \
 	push banner clean fclean re help

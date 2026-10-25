@@ -17,10 +17,10 @@ int	parse_elf_info(t_woody *woody)
 		fputs("File architecture not supported. x86_64 only\n", stderr);
 		return (1);
 	}
-	for (size_t i = 0; i < 4; i++)
-		printf("%c ", woody->ehdr->e_ident[i]);
-	printf("%d\n", woody->ehdr->e_ident[4]);
-	printf("Entry point: 0x%lx\n", woody->ehdr->e_entry);
+	// for (size_t i = 0; i < 4; i++)
+	// 	printf("%c ", woody->ehdr->e_ident[i]);
+	// printf("%d\n", woody->ehdr->e_ident[4]);
+	// printf("Entry point: 0x%lx\n", woody->ehdr->e_entry);
 	phdr_size = (size_t)woody->ehdr->e_phnum * sizeof(Elf64_Phdr);
 	if (woody->ehdr->e_phoff > (size_t)woody->input_stat.st_size
 		|| phdr_size > (size_t)woody->input_stat.st_size

@@ -1,5 +1,7 @@
 #include "woody.h"
 
+extern char stub_start[], stub_end[];
+
 static int find_segment(Elf64_Ehdr *ehdr, Elf64_Phdr *phdr)
 {
 	for (int i = 0; i < ehdr->e_phnum; i++)
@@ -9,6 +11,22 @@ static int find_segment(Elf64_Ehdr *ehdr, Elf64_Phdr *phdr)
 	return (-1);
 }
 
+// t_cave	check_pt_note(Elf64_Ehdr *ehdr, Elf64_Phdr *phdr)
+// {
+// 	t_cave cave;
+// 	for (int i = 0; i < ehdr->e_phnum; i++)
+// 		if (phdr[i].p_type == PT_NOTE && )
+// 		{
+// 			cave.host_index = i;
+// 			cave.offset = (size_t)(woody->file_buf + woody->phdrs[i].p_offset + woody->phdrs[i].p_filesz - woody->file_buf);
+// 			cave.size = (size_t)(ptr - (uint8_t	*)(woody->file_buf + woody->phdrs[i].p_offset + woody->phdrs[i].p_filesz));
+// 			return (cave);
+// 		}
+// 	cave.offset = 0;
+// 	cave.size = 0;
+// 	cave.host_index = -1;
+// 	return (cave);
+// }
 t_cave find_cave(t_woody *woody)
 {
 	t_cave	cave;
@@ -21,8 +39,8 @@ t_cave find_cave(t_woody *woody)
 		return (cave);
 	}
 	uint8_t	*ptr = (uint8_t	*)(woody->file_buf + woody->phdrs[i].p_offset + woody->phdrs[i].p_filesz);
-	while ((ptr < (uint8_t	*)(woody->file_buf + woody->input_stat.st_size)) && *ptr != '\0')
-		ptr++;
+	while (ptr < (uint8_t *)(woody->file_buf + woody->input_stat.st_size) && *ptr == '\0')
+    	ptr++;
 	cave.offset = (size_t)(woody->file_buf + woody->phdrs[i].p_offset + woody->phdrs[i].p_filesz - woody->file_buf);
 	cave.size = (size_t)(ptr - (uint8_t	*)(woody->file_buf + woody->phdrs[i].p_offset + woody->phdrs[i].p_filesz));
 	return (cave);
