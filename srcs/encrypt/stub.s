@@ -11,21 +11,22 @@ global key
 section .text
 
 stub_start:
-    ; Calculate load bias:
-    ; runtime address of stub_start - ELF vaddr of stub_start
-	push rdx
+    ; Preserve rdx across the stub execution.
+    push rdx
+
+    ; Calculate the ELF load bias using the runtime and virtual addresses.
     lea rax, [rel stub_start]
     sub rax, [rel stub_vaddr]
     mov r14, rax
 
-    ; 1. Print ..WOODY..
+    ; Display the packer identification message.
     lea rsi, [rel msg]
     mov rdi, 1
     mov rdx, msg_len
     mov rax, 1
     syscall
 
-    ; 2. Calculate runtime .text range
+    ; Calculate the page-aligned start and length of the .text segment.
     mov rax, [rel text_vaddr]
     add rax, r14
     and rax, -4096
@@ -39,7 +40,7 @@ stub_start:
     and rcx, -4096
     mov r13, rcx
 
-    ; mprotect(page_base, len, PROT_READ|PROT_WRITE|PROT_EXEC)
+    ; Temporarily grant read, write and execute permissions to .text.
     mov rdi, r12
     mov rsi, r13
     mov rdx, 7
@@ -48,7 +49,7 @@ stub_start:
     test rax, rax
     js .protection_error
 
-    ; 3. Decrypt .text using RC4
+    ; Decrypt the .text segment in place using RC4.
     mov rdi, [rel text_vaddr]
     add rdi, r14
     mov rsi, [rel text_size]
@@ -56,7 +57,7 @@ stub_start:
     mov rcx, [rel key_len]
     call rc4_crypt
 
-    ; 4. Restore read/execute permissions
+    ; Restore read and execute permissions after decryption.
     mov rdi, r12
     mov rsi, r13
     mov rdx, 5
@@ -65,14 +66,14 @@ stub_start:
     test rax, rax
     js .protection_error
 
-    ; 5. Transfer control to original entry point
+    ; Calculate the runtime entry point and transfer execution to it.
     mov rax, [rel original_entry]
     add rax, r14
-	pop rdx
+    pop rdx
     jmp rax
 
 .protection_error:
-    ; Exit with failure if mprotect fails
+    ; Terminate the process if memory protection changes fail.
     mov rdi, 1
     mov rax, 60
     syscall
@@ -81,9 +82,9 @@ msg:     db "..WOODY..", 10
 msg_len equ $ - msg
 
 
-; --------------------------------------------------
-; rc4_crypt(data, len, key, keylen)
-; --------------------------------------------------
+; RC4 encryption/decryption routine.
+; Arguments: rdi = data, rsi = length, rdx = key, rcx = key length.
+; The data is modified in place.
 
 rc4_crypt:
     push rbp
@@ -95,13 +96,13 @@ rc4_crypt:
     push r15
     sub rsp, 288
 
-    ; Local parameters
+    ; Save function arguments in local stack storage.
     mov [rbp - 48], rdi
     mov [rbp - 56], rsi
     mov [rbp - 64], rdx
     mov [rbp - 72], rcx
 
-    ; Initialise S[i] = i
+    ; Initialise the 256-byte RC4 state array with values 0 through 255.
     xor r12d, r12d
 
 .ksa_init:
@@ -110,7 +111,8 @@ rc4_crypt:
     cmp r12d, 256
     jne .ksa_init
 
-    ; KSA
+    ; Key Scheduling Algorithm (KSA).
+    ; Permute the state array using the supplied key.
     xor r12d, r12d
     xor r13d, r13d
 
@@ -119,6 +121,7 @@ rc4_crypt:
     je .done
 
 .ksa_loop:
+    ; Update the permutation index using the current state and key byte.
     movzx eax, byte [rbp - 328 + r12]
     add r13d, eax
 
@@ -131,6 +134,7 @@ rc4_crypt:
     add r13d, eax
     and r13d, 255
 
+    ; Swap the two selected entries in the state array.
     lea r14, [rbp - 328]
     mov al, [r14 + r12]
     mov bl, [r14 + r13]
@@ -141,15 +145,18 @@ rc4_crypt:
     cmp r12d, 256
     jne .ksa_loop
 
-    ; PRGA
+    ; Pseudo-Random Generation Algorithm (PRGA).
+    ; Generate a keystream byte for each byte of input data.
     xor r12d, r12d
     xor r13d, r13d
     xor r14d, r14d
 
 .prga_loop:
+    ; Stop when the entire input buffer has been processed.
     cmp r14, [rbp - 56]
     jae .done
 
+    ; Update the RC4 state indices.
     inc r12d
     and r12d, 255
 
@@ -158,17 +165,20 @@ rc4_crypt:
     add r13d, eax
     and r13d, 255
 
+    ; Swap the selected state entries.
     mov al, [r15 + r12]
     mov bl, [r15 + r13]
     mov [r15 + r12], bl
     mov [r15 + r13], al
 
+    ; Calculate the next keystream byte from the updated state.
     movzx eax, byte [r15 + r12]
     movzx ebx, byte [r15 + r13]
     add eax, ebx
     and eax, 255
     movzx eax, byte [r15 + rax]
 
+    ; XOR the keystream byte with the current data byte.
     mov rdi, [rbp - 48]
     xor byte [rdi + r14], al
 
@@ -176,6 +186,7 @@ rc4_crypt:
     jmp .prga_loop
 
 .done:
+    ; Restore the stack frame and all preserved registers.
     add rsp, 288
     pop r15
     pop r14
@@ -186,9 +197,7 @@ rc4_crypt:
     ret
 
 
-; --------------------------------------------------
-; Parameters patched by the packer
-; --------------------------------------------------
+; Storage for values patched by the packer at build time.
 
 align 8
 stub_vaddr:     dq 0
