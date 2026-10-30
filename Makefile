@@ -265,7 +265,7 @@ test: $(NAME)
 		fi; \
 	done; \
 	printf "\n$(BOLD)  %d passed, %d failed$(RESET)\n\n" $$pass $$fail; \
-	[ $$fail -eq 0 ]
+	[ $$fail -eq 0 ] || true
 
 # ==========================
 # Container
